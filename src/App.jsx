@@ -919,30 +919,30 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
     const mySquad = players.filter(p => p.teamId === myTeamId);
     const starters = mySquad.filter(p => p.isStarter);
 
-    // --- NOWOŚĆ: SILNIK DECYZJI FABULARNYCH ---
-  const handleResolveEvent = (choice) => {
+  // --- KULOODPORNY SILNIK DECYZJI FABULARNYCH ---
+  const handleResolveEvent = (event, choice) => {
+      // 1. Aktualizacja Kasy i Zarządu
       if (choice.budgetChange) setBudget(b => b + choice.budgetChange);
       if (choice.boardChange) setBoardConfidence(b => Math.max(0, Math.min(100, b + choice.boardChange)));
       
+      // 2. Bezpieczna aktualizacja graczy
       setPlayers(prev => prev.map(p => {
-          if (p.teamId !== myTeamId) return p; // Zmiany dotyczą tylko Twojej drużyny
+          if (p.teamId !== myTeamId) return p; 
           let newP = { ...p };
           
-          // Jeśli event dotyczył konkretnego gracza (np. afera nocna, kontuzja)
-          if (activeEvent.targetPlayerId && p.id === activeEvent.targetPlayerId) {
+          if (event.targetPlayerId && p.id === event.targetPlayerId) {
               if (choice.moraleChange) newP.morale = Math.max(0, Math.min(100, (newP.morale || 100) + choice.moraleChange));
               if (choice.injuryChange !== undefined && choice.injuryChange > 0) newP.injury = choice.injuryChange;
           }
-          // Jeśli decyzja dotyka całej drużyny (np. wyjazd do Arabii)
           if (choice.globalMoraleChange) {
               newP.morale = Math.max(0, Math.min(100, (newP.morale || 100) + choice.globalMoraleChange));
           }
           return newP;
       }));
 
-      // Logujemy do powiadomień
+      // 3. Logowanie i zamknięcie
       setNotifications(prev => [{text: `📰 Prasa: ${choice.logText}`, value: choice.budgetChange || 0}, ...prev]);
-      setActiveEvent(null); // Zamyka okienko
+      setActiveEvent(null); 
   };
     // 1. Sprawdź czy jest dokładnie 11 graczy
     if (starters.length !== 11) {
