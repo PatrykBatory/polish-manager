@@ -912,32 +912,38 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
       }
   };
 
-  // --- KULOODPORNY SILNIK DECYZJI FABULARNYCH (Zabezpieczenie przed długami) ---
+  // --- KULOODPORNY SILNIK DECYZJI FABULARNYCH ---
   const handleResolveEvent = (choice) => {
-      // ZABEZPIECZENIE: Sprawdzamy czy nas stać!
-      if (choice.budgetChange < 0 && budget < Math.abs(choice.budgetChange)) {
-          alert(`Brak środków! Potrzebujesz ${formatMoney(Math.abs(choice.budgetChange))}, aby wybrać tę opcję.`);
-          return; // Blokuje wykonanie decyzji
+      const budgetImpact = choice.budgetChange ? Number(choice.budgetChange) : 0;
+      
+      // Absolutna, twarda blokada przed ujemnym kontem
+      if (budgetImpact < 0 && Number(budget) < Math.abs(budgetImpact)) {
+          alert(`❌ Zarząd blokuje decyzję! Brak środków na koncie.`);
+          return; 
       }
 
-      if (choice.budgetChange) setBudget(b => b + choice.budgetChange);
-      if (choice.boardChange) setBoardConfidence(b => Math.max(0, Math.min(100, b + choice.boardChange)));
+      // Bezpieczne dodawanie / odejmowanie
+      if (budgetImpact !== 0) setBudget(b => Number(b) + budgetImpact);
+      if (choice.boardChange) setBoardConfidence(b => Math.max(0, Math.min(100, Number(b) + choice.boardChange)));
       
       setPlayers(prev => prev.map(p => {
           if (String(p.teamId) !== String(myTeamId)) return p; 
           let newP = { ...p };
           
           if (activeEvent?.targetPlayerId && String(p.id) === String(activeEvent.targetPlayerId)) {
-              if (choice.moraleChange) newP.morale = Math.max(0, Math.min(100, (newP.morale || 100) + choice.moraleChange));
+              if (choice.moraleChange) newP.morale = Math.max(0, Math.min(100, Number(newP.morale || 100) + choice.moraleChange));
               if (choice.injuryChange !== undefined && choice.injuryChange > 0) newP.injury = choice.injuryChange;
+              // NOWE: Zawieszenia i Potencjał
+              if (choice.suspensionChange !== undefined && choice.suspensionChange > 0) newP.suspension = (newP.suspension || 0) + choice.suspensionChange;
+              if (choice.potentialChange !== undefined && choice.potentialChange > 0) newP.potential = Math.min(99, newP.potential + choice.potentialChange);
           }
           if (choice.globalMoraleChange) {
-              newP.morale = Math.max(0, Math.min(100, (newP.morale || 100) + choice.globalMoraleChange));
+              newP.morale = Math.max(0, Math.min(100, Number(newP.morale || 100) + choice.globalMoraleChange));
           }
           return newP;
       }));
 
-      setNotifications(prev => [{text: `📰 Prasa: ${choice.logText}`, value: choice.budgetChange || 0}, ...prev]);
+      setNotifications(prev => [{text: `📰 Prasa: ${choice.logText}`, value: budgetImpact}, ...prev]);
       setActiveEvent(null); 
   };
 
@@ -1279,37 +1285,110 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
       });
 
      // --- SYSTEM FABUŁY I ZDARZEŃ LOSOWYCH ---
+      // --- SYSTEM FABUŁY I ZDARZEŃ LOSOWYCH ---
       const myTeamPlayersForEvent = newPlayers.filter(p => String(p.teamId) === String(myTeamId));
-      // UWAGA: Ustawione na 1.0 (100%), żeby po każdym meczu wyskakiwał dylemat (dla testów). Zmień potem na 0.25!
-      if (Math.random() < 1.0 && myTeamPlayersForEvent.length > 0) {
+      
+      // Szansa na event wynosi 25% (raz na 4 kolejki, optymalne tempo)
+      if (Math.random() < 0.25 && myTeamPlayersForEvent.length > 0) { 
+          // RÓŻNORODNE LOSOWANIE PIŁKARZY
           const randomPlayer = myTeamPlayersForEvent[Math.floor(Math.random() * myTeamPlayersForEvent.length)];
-          const topPlayer = [...myTeamPlayersForEvent].sort((a,b) => b.skill - a.skill)[0] || randomPlayer;
+          
+          const sortedBySkill = [...myTeamPlayersForEvent].sort((a,b) => b.skill - a.skill);
+          const top3 = sortedBySkill.slice(0, 3);
+          const starPlayer = top3[Math.floor(Math.random() * top3.length)] || randomPlayer; // Jedna z gwiazd
+          
+          const youngsters = myTeamPlayersForEvent.filter(p => p.age < 23);
+          const youngPlayer = youngsters.length > 0 ? youngsters[Math.floor(Math.random() * youngsters.length)] : randomPlayer;
+
+          const benchers = myTeamPlayersForEvent.filter(p => !p.isStarter);
+          const benchPlayer = benchers.length > 0 ? benchers[Math.floor(Math.random() * benchers.length)] : randomPlayer;
 
           const possibleEvents = [
               {
                   title: "Afera w klubie nocnym!",
-                  desc: `Twój gwiazdor, ${topPlayer.name}, został przyłapany przez paparazzi w klubie nocnym do 4 nad ranem przed ważnym meczem. Prasa huczy i domaga się konsekwencji!`,
-                  targetPlayerId: topPlayer.id,
+                  desc: `Jedna z Twoich największych gwiazd, ${starPlayer.name}, została przyłapana w klubie nocnym do 4 nad ranem przed meczem. Prasa domaga się kary!`,
+                  targetPlayerId: starPlayer.id,
                   choices: [
-                      { text: "Ukarz go grzywną", budgetChange: 50000, moraleChange: -30, boardChange: 5, logText: "Zawieszenie gracza spodobało się zarządowi." },
-                      { text: "Broń go w mediach", budgetChange: -20000, moraleChange: 20, boardChange: -5, logText: "Dział PR uciszył sprawę. Zawodnik jest Ci wdzięczny." }
+                      { text: "Ukarz go grzywną", budgetChange: 50000, moraleChange: -30, boardChange: 5, logText: "Ukarano zawodnika. Zarząd pochwala dyscyplinę." },
+                      { text: "Broń go w mediach", budgetChange: -30000, moraleChange: 15, boardChange: -5, logText: "Dział PR uciszył sprawę kosztem klubowej kasy." }
+                  ]
+              },
+              {
+                  title: "Szybki i wściekły",
+                  desc: `${starPlayer.name} został zatrzymany za jazdę 200 km/h w terenie zabudowanym. Grozi mu areszt i skandal wizerunkowy.`,
+                  targetPlayerId: starPlayer.id,
+                  choices: [
+                      { text: "Opłać kaucję i prawników", budgetChange: -150000, moraleChange: 10, logText: "Prawnicy wyciągnęli piłkarza z aresztu." },
+                      { text: "Zawieszenie w prawach", budgetChange: 0, suspensionChange: 2, boardChange: 10, logText: "Klub nałożył surowe zawieszenie. Zarząd jest zachwycony." }
+                  ]
+              },
+              {
+                  title: "Szantaż agenta",
+                  desc: `Agent piłkarza ${starPlayer.name} grozi, że jeśli nie wpłacisz mu "premii lojalnościowej" pod stołem, zawodnik natychmiast zażąda transferu!`,
+                  targetPlayerId: starPlayer.id,
+                  choices: [
+                      { text: "Zapłać cwaniakowi", budgetChange: -200000, moraleChange: 20, logText: "Agent dostał pieniądze. Gwiazda zostaje w klubie." },
+                      { text: "Nie negocjuję z terrorystami", budgetChange: 0, moraleChange: -40, boardChange: 5, logText: "Wyrzuciłeś agenta za drzwi. Piłkarz jest wściekły!" }
                   ]
               },
               {
                   title: "Niepokojący uraz...",
-                  desc: `Podczas wczorajszego treningu siłowego ${randomPlayer.name} zaczął narzekać na kłujący ból w kolanie. Sztab medyczny pyta o Twoją decyzję.`,
+                  desc: `Na treningu siłowym ${randomPlayer.name} zaczął narzekać na kłujący ból w kolanie. Lekarz klubowy nie wie co robić.`,
                   targetPlayerId: randomPlayer.id,
                   choices: [
-                      { text: "Prywatna klinika", budgetChange: -80000, injuryChange: 0, logText: "Błyskawiczne leczenie zapobiegło kontuzji." },
-                      { text: "Zwykły lód i maść", budgetChange: 0, injuryChange: 3, logText: "Brak reakcji pogłębił uraz. Zawodnik wypada z gry!" }
+                      { text: "Wyślij do Prywatnej Kliniki", budgetChange: -90000, injuryChange: 0, logText: "Specjaliści w klinice zażegnali kryzys." },
+                      { text: "Dajcie mu lód i maść", budgetChange: 0, injuryChange: 3, logText: "Oszczędności zemściły się. Zwykły uraz przerodził się w dłuższą kontuzję!" }
                   ]
               },
               {
-                  title: "Bunt Kibiców",
-                  desc: "Ultrasi protestują przeciwko zbyt wysokim cenom biletów na stadionie i słabemu jedzeniu. Grożą bojkotem i wniesieniem pustych trybun na najbliższy mecz!",
+                  title: "Zakażenie w szatni",
+                  desc: `Wielu graczy, w tym ${randomPlayer.name}, zgłasza silne objawy grypy żołądkowej. Szatnię opanował wirus!`,
+                  targetPlayerId: randomPlayer.id,
                   choices: [
-                      { text: "Zrób promocję", budgetChange: -120000, boardChange: 15, globalMoraleChange: 5, logText: "Kibice są zachwyceni, atmosfera w klubie rośnie." },
-                      { text: "Zignoruj protest", budgetChange: 0, boardChange: -15, globalMoraleChange: -5, logText: "Kibice odwracają się od klubu. Napięta atmosfera." }
+                      { text: "Dezynfekcja i drogie leki", budgetChange: -120000, logText: "Prywatni medycy opanowali epidemię w kilka godzin." },
+                      { text: "Niech piją dużo wody", budgetChange: 0, injuryChange: 2, globalMoraleChange: -10, logText: "Epidemia uziemiła część składu. Atmosfera w klubie jest grobowa." }
+                  ]
+              },
+              {
+                  title: "Młody gniewny",
+                  desc: `Młody talent, ${youngPlayer.name}, prosi o sfinansowanie dodatkowych, prywatnych treningów ze specjalistą z zagranicy.`,
+                  targetPlayerId: youngPlayer.id,
+                  choices: [
+                      { text: "Zainwestuj w młodzika", budgetChange: -60000, potentialChange: 2, moraleChange: 15, logText: "Młody talent dostał trenera. Jego potencjał mocno wzrósł!" },
+                      { text: "Musi trenować z zespołem", budgetChange: 0, moraleChange: -15, logText: "Odmówiono specjalnego traktowania. Zawodnik jest zawiedziony." }
+                  ]
+              },
+              {
+                  title: "Frustracja Rezerwowego",
+                  desc: `${benchPlayer.name} udzielił wywiadu, w którym wylał żale na temat tego, że ciągle grzeje ławkę. Wybuchł mały skandal.`,
+                  targetPlayerId: benchPlayer.id,
+                  choices: [
+                      { text: "Potężna grzywna finansowa", budgetChange: 40000, moraleChange: -25, boardChange: 5, logText: "Uciszono buntownika karą pieniężną." },
+                      { text: "Obiecaj mu więcej minut", budgetChange: 0, moraleChange: 20, boardChange: -5, logText: "Ułagodzono sytuację obietnicami bez pokrycia." }
+                  ]
+              },
+              {
+                  title: "Lukratywna Reklama",
+                  desc: "Globalna marka szamponu chce nagrać w tym tygodniu spot z całą pierwszą drużyną. Zapłacą krocie, ale piłkarze stracą dzień odpoczynku.",
+                  choices: [
+                      { text: "Kręcimy! (Kasa > Zmęczenie)", budgetChange: 250000, globalMoraleChange: -15, logText: "Zyskaliśmy ćwierć miliona, ale drużyna jest wykończona sesją." },
+                      { text: "Odmów (Skupienie na lidze)", budgetChange: 0, boardChange: 5, globalMoraleChange: 10, logText: "Zawodnicy docenili dzień wolny na regenerację." }
+                  ]
+              },
+              {
+                  title: "Skandal Kulinarny",
+                  desc: "Lokalna prasa przyłapała pół drużyny na jedzeniu fast-foodów zaraz po meczu. Zarząd oczekuje reakcji na ten brak profesjonalizmu.",
+                  choices: [
+                      { text: "Zatrudnij Szefa Kuchni z ⭐️", budgetChange: -100000, globalMoraleChange: 15, boardChange: 10, logText: "Zatrudniono topowego kucharza. Forma zespołu rośnie!" },
+                      { text: "Zostaw temat", budgetChange: 0, globalMoraleChange: -10, boardChange: -5, logText: "Zignorowano temat diety. Działacze są niezadowoleni." }
+                  ]
+              },
+              {
+                  title: "Akcja Charytatywna",
+                  desc: "Miejscowy szpital dziecięcy prosi o wizytę drużyny oraz ufundowanie nowego sprzętu rehabilitacyjnego.",
+                  choices: [
+                      { text: "Kup sprzęt i zrób zdjęcia", budgetChange: -150000, globalMoraleChange: 25, boardChange: 20, logText: "Piękny gest klubu odbił się szerokim echem. Morale wystrzeliło w kosmos!" },
+                      { text: "Zignoruj prośbę", budgetChange: 0, globalMoraleChange: -10, boardChange: -15, logText: "Media opisały nas jako skąpców. Cios wizerunkowy." }
                   ]
               }
           ];
@@ -4446,13 +4525,16 @@ const InfrastructureView = ({ infrastructure, setInfrastructure, budget, setBudg
 };
 // --- NOWOŚĆ: WYDARZENIA FABULARNE (WYBORY) ---
 // --- NOWOŚĆ: WYDARZENIA FABULARNE (WYBORY) ---
+// --- NOWOŚĆ: WYDARZENIA FABULARNE (WYBORY) ---
 const StoryEventModal = ({ event, onResolve, budget }) => {
+    const currentBudget = Number(budget) || 0;
+
     return (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-sm p-6">
             <div className="bg-slate-900 border border-slate-600 w-full max-w-3xl rounded-[2rem] shadow-[0_0_50px_rgba(255,255,255,0.1)] p-8 md:p-12 animate-scale-in relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-red-600/10 rounded-full blur-[100px] pointer-events-none"></div>
                 
-                <div className="text-center mb-10 relative z-10">
+                <div className="text-center mb-8 relative z-10">
                     <div className="text-6xl mb-4 animate-bounce drop-shadow-md">📰</div>
                     <h2 className="text-3xl md:text-5xl font-black text-white tracking-tighter uppercase italic drop-shadow-md border-b-2 border-red-500/50 pb-4 inline-block">
                         {event.title}
@@ -4460,29 +4542,40 @@ const StoryEventModal = ({ event, onResolve, budget }) => {
                     <p className="text-slate-300 mt-6 text-lg md:text-xl font-medium leading-relaxed bg-slate-950/60 p-6 rounded-2xl border border-white/5 shadow-inner">
                         {event.desc}
                     </p>
+                    
+                    {/* WIDOCZNY STAN KONTA W GAZECIE */}
+                    <div className="mt-6 inline-block bg-slate-950 px-6 py-2 rounded-xl border border-yellow-500/30 text-yellow-400 font-bold font-mono text-lg shadow-inner">
+                        Budżet klubu: {formatMoney(currentBudget)}
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
                     {event.choices.map((choice, idx) => {
-                        // Sprawdzamy czy gracza na to stać
-                        const isTooExpensive = choice.budgetChange < 0 && budget < Math.abs(choice.budgetChange);
+                        const cost = choice.budgetChange ? Number(choice.budgetChange) : 0;
+                        const isTooExpensive = cost < 0 && currentBudget < Math.abs(cost);
 
+                        // JEŚLI NAS NIE STAĆ - Renderujemy MARTWY KWADRAT, a nie przycisk!
+                        if (isTooExpensive) {
+                            return (
+                                <div key={idx} className="bg-slate-950 border-2 border-red-900/50 p-6 rounded-2xl flex flex-col items-center text-center opacity-50 cursor-not-allowed grayscale">
+                                    <span className="text-xl font-black mb-4 leading-tight text-slate-500">{choice.text}</span>
+                                    <div className="mt-auto w-full bg-red-950/80 border border-red-900 py-2.5 rounded-lg text-xs text-red-500 font-black uppercase tracking-widest shadow-inner flex items-center justify-center gap-2">
+                                        <span>❌ Brak środków</span>
+                                        <span className="text-[10px] opacity-80">(Koszt: {formatMoney(Math.abs(cost))})</span>
+                                    </div>
+                                </div>
+                            );
+                        }
+
+                        // JEŚLI NAS STAĆ - Zwykły klikalny guzik
                         return (
                             <button 
                                 key={idx} 
                                 onClick={() => onResolve(choice)} 
-                                disabled={isTooExpensive}
-                                className={`group border-2 p-6 rounded-2xl flex flex-col items-center text-center transition-all duration-300 
-                                    ${isTooExpensive 
-                                        ? 'bg-slate-950 border-red-900/30 opacity-50 cursor-not-allowed' 
-                                        : 'bg-slate-800 hover:bg-slate-700 border-slate-600 hover:border-white hover:shadow-[0_15px_30px_rgba(255,255,255,0.1)] hover:-translate-y-1'
-                                    }`}
+                                className="group bg-slate-800 hover:bg-slate-700 border-2 border-slate-600 hover:border-white p-6 rounded-2xl flex flex-col items-center text-center transition-all duration-300 hover:shadow-[0_15px_30px_rgba(255,255,255,0.1)] hover:-translate-y-1"
                             >
-                                <span className={`text-xl font-black mb-4 leading-tight ${isTooExpensive ? 'text-slate-500' : 'text-white group-hover:text-red-400 transition-colors'}`}>
-                                    {choice.text}
-                                </span>
-                                
-                                <div className="flex flex-wrap justify-center gap-2 mt-auto">
+                                <span className="text-xl font-black text-white mb-4 group-hover:text-red-400 transition-colors leading-tight">{choice.text}</span>
+                               <div className="flex flex-wrap justify-center gap-2 mt-auto">
                                     {choice.budgetChange !== 0 && (
                                         <span className={`text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border ${choice.budgetChange > 0 ? 'bg-emerald-900/50 text-emerald-400 border-emerald-500/30' : 'bg-red-900/50 text-red-400 border-red-500/30'}`}>
                                             Kasa {choice.budgetChange > 0 ? '+' : ''}{formatMoney(choice.budgetChange)}
@@ -4513,14 +4606,17 @@ const StoryEventModal = ({ event, onResolve, budget }) => {
                                             Skuteczne Leczenie
                                         </span>
                                     )}
+                                    {choice.suspensionChange !== undefined && choice.suspensionChange > 0 && (
+                                        <span className="text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border bg-red-900/50 text-red-400 border-red-500/30 animate-pulse">
+                                            Zawieszenie {choice.suspensionChange} mecz
+                                        </span>
+                                    )}
+                                    {choice.potentialChange !== undefined && choice.potentialChange > 0 && (
+                                        <span className="text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border bg-cyan-900/50 text-cyan-400 border-cyan-500/30">
+                                            Potencjał +{choice.potentialChange}
+                                        </span>
+                                    )}
                                 </div>
-
-                                {/* Ostrzeżenie gdy brak kasy */}
-                                {isTooExpensive && (
-                                    <div className="w-full mt-4 bg-red-950/50 border border-red-900/50 py-1.5 rounded-lg text-[9px] text-red-500 font-black uppercase tracking-widest">
-                                        Brak środków
-                                    </div>
-                                )}
                             </button>
                         );
                     })}
