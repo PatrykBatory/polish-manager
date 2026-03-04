@@ -912,25 +912,22 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
       }
   };
 
- // Podmień całą funkcję startWeekSimulation na tę:
+  // --- KULOODPORNY SILNIK DECYZJI FABULARNYCH (Zabezpieczenie przed długami) ---
+  const handleResolveEvent = (choice) => {
+      // ZABEZPIECZENIE: Sprawdzamy czy nas stać!
+      if (choice.budgetChange < 0 && budget < Math.abs(choice.budgetChange)) {
+          alert(`Brak środków! Potrzebujesz ${formatMoney(Math.abs(choice.budgetChange))}, aby wybrać tę opcję.`);
+          return; // Blokuje wykonanie decyzji
+      }
 
-  const startWeekSimulation = () => {
-    // --- WALIDACJA SKŁADU PRZED MECZEM (NOWE) ---
-    const mySquad = players.filter(p => p.teamId === myTeamId);
-    const starters = mySquad.filter(p => p.isStarter);
-
-  // --- KULOODPORNY SILNIK DECYZJI FABULARNYCH ---
-  const handleResolveEvent = (event, choice) => {
-      // 1. Aktualizacja Kasy i Zarządu
       if (choice.budgetChange) setBudget(b => b + choice.budgetChange);
       if (choice.boardChange) setBoardConfidence(b => Math.max(0, Math.min(100, b + choice.boardChange)));
       
-      // 2. Bezpieczna aktualizacja graczy
       setPlayers(prev => prev.map(p => {
-          if (p.teamId !== myTeamId) return p; 
+          if (String(p.teamId) !== String(myTeamId)) return p; 
           let newP = { ...p };
           
-          if (event.targetPlayerId && p.id === event.targetPlayerId) {
+          if (activeEvent?.targetPlayerId && String(p.id) === String(activeEvent.targetPlayerId)) {
               if (choice.moraleChange) newP.morale = Math.max(0, Math.min(100, (newP.morale || 100) + choice.moraleChange));
               if (choice.injuryChange !== undefined && choice.injuryChange > 0) newP.injury = choice.injuryChange;
           }
@@ -940,16 +937,20 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
           return newP;
       }));
 
-      // 3. Logowanie i zamknięcie
       setNotifications(prev => [{text: `📰 Prasa: ${choice.logText}`, value: choice.budgetChange || 0}, ...prev]);
       setActiveEvent(null); 
   };
+
+  const startWeekSimulation = () => {
+    // --- WALIDACJA SKŁADU PRZED MECZEM (NOWE) ---
+    const mySquad = players.filter(p => p.teamId === myTeamId);
+    const starters = mySquad.filter(p => p.isStarter);
+
     // 1. Sprawdź czy jest dokładnie 11 graczy
     if (starters.length !== 11) {
         alert(`Nieprawidłowa liczba zawodników w pierwszym składzie! \nMasz: ${starters.length}. Wymagane: 11.`);
-        // Przełącz widok na skład, żeby gracz mógł to poprawić
         setCurrentView('squad'); 
-        return; // STOP - nie symulujemy meczu
+        return; 
     }
 
     // 2. Sprawdź czy jest bramkarz
@@ -957,7 +958,7 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
     if (!hasGK) {
         alert("W pierwszym składzie brakuje bramkarza (BR)!");
         setCurrentView('squad');
-        return; // STOP
+        return; 
     }
 
     // 3. Sprawdź czy w pierwszym składzie nie ma kontuzjowanych
@@ -965,7 +966,7 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
     if (injuredStarter) {
         alert(`Zawodnik ${injuredStarter.name} ma kontuzję i nie może grać! Zdejmij go ze składu.`);
         setCurrentView('squad');
-        return; // STOP
+        return; 
     }
     // ---------------------------------------------
 
@@ -994,17 +995,13 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
       let earnedXP = 0;
       if (!pendingUpdates) return;
       
-      // 1. Kopia stanów
       let newTeams = JSON.parse(JSON.stringify(teams)); 
-      // GŁĘBOKA KOPIA: Dzięki temu React odświeży OVR na kartach!
       let newPlayers = players.map(p => ({ ...p, stats: { ...p.stats } })); 
       
-      // DEKREMENTACJA KAR ZA KARTKI (Odbycie kary) - ZGUBIONY KOD PRZYWRÓCONY!
       newPlayers.forEach(p => {
           if (p.suspension > 0) p.suspension -= 1;
       });
 
-      // --- NOWOŚĆ: SYSTEM MORALI I BUNTÓW ZAWODNIKÓW ---
       let forcedSales = [];
       let incomeFromRebels = 0;
       const myTeamPlayers = newPlayers.filter(p => p.teamId === myTeamId);
@@ -1012,58 +1009,50 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
 
       newPlayers.forEach(p => {
           if (p.morale === undefined) p.morale = 100;
-          
           if (p.teamId === myTeamId) {
               if (p.isStarter) {
-                  p.morale = Math.min(100, p.morale + 10); // Gra w 1. składzie = zadowolony
+                  p.morale = Math.min(100, p.morale + 10); 
               } else if (p.injury === 0 && p.suspension === 0) {
-                  // Siedzi na ławce mimo że jest w pełni zdatny do gry (Foch!)
                   let moraleDrop = 3;
-                  if (p.skill >= myAvgSkill + 2) moraleDrop = 15; // Gwiazda drużyny jest wściekła!
-                  else if (p.skill >= myAvgSkill - 3) moraleDrop = 8; // Podstawowy gracz niezadowolony
+                  if (p.skill >= myAvgSkill + 2) moraleDrop = 15; 
+                  else if (p.skill >= myAvgSkill - 3) moraleDrop = 8; 
                   
-                  // --- SKILL RPG: PSYCHOLOG (Zmniejsza ubytek morali) ---
                   const motivatorLevel = managerData?.skills?.motivator || 0;
                   if (motivatorLevel > 0) {
-                      moraleDrop = Math.max(1, moraleDrop - (motivatorLevel * 3)); // Obcina spadek nawet o 9 punktów!
+                      moraleDrop = Math.max(1, moraleDrop - (motivatorLevel * 3)); 
                   }
-                  
                   p.morale -= moraleDrop;
               }
 
-              // BUNT! Zmusza zarząd do sprzedaży (Morale spadło do 0)
               if (p.morale <= 0) {
                   if (p.loanedFrom) {
-                      p.teamId = p.loanedFrom; // Wraca obrażony z wypożyczenia
-                      forcedSales.push(`➤ ${p.name} (Przerwał wypożyczenie z powodu braku gry)`);
+                      p.teamId = p.loanedFrom; 
+                      forcedSales.push(`➤ ${p.name} (Przerwał wypożyczenie)`);
                   } else {
-                      const sellPrice = Math.floor(p.value * 0.3); // Zarząd opycha go za 30% wartości!
+                      const sellPrice = Math.floor(p.value * 0.3); 
                       incomeFromRebels += sellPrice;
                       forcedSales.push(`➤ ${p.name} (Zarząd sprzedał buntownika za ${formatMoney(sellPrice)})`);
-                      p.teamId = null; // Staje się wolnym agentem / wyrzucony z gry
+                      p.teamId = null; 
                   }
               }
           }
       });
       
-      // Powiadomienie na twarz o buncie w szatni!
       if (forcedSales.length > 0) {
           setBudget(b => b + incomeFromRebels);
-          alert(`🚨 BUNT W SZATNI!\n\nTwoi zawodnicy, którzy zbyt długo siedzieli na ławce rezerwowych, osiągnęli 0% Morali i zażądali natychmiastowego odejścia!\n\nKlub opuścili:\n${forcedSales.join('\n')}`);
+          alert(`🚨 BUNT W SZATNI!\n\nTwoi zawodnicy osiągnęli 0% Morali i zażądali natychmiastowego odejścia!\n\nKlub opuścili:\n${forcedSales.join('\n')}`);
       }
+      
       let newSchedules = JSON.parse(JSON.stringify(schedules));
-
       const myTeamData = newTeams.find(t => t.id === myTeamId);
       
-      // 2. Przetwarzanie wyników (Twoja liga / mecze z terminarza)
       if (pendingUpdates) {
           pendingUpdates.forEach(res => {
-              // A. Aktualizacja tabeli
               const tA = newTeams.find(t => String(t.id) === String(res.teamAId)); 
               const tB = newTeams.find(t => String(t.id) === String(res.teamBId));
-              // Zdobywanie XP
-            if (tA.id === myTeamId) earnedXP += res.scoreA > res.scoreB ? 100 : res.scoreA === res.scoreB ? 30 : 10;
-             if (tB.id === myTeamId) earnedXP += res.scoreB > res.scoreA ? 100 : res.scoreA === res.scoreB ? 30 : 10;
+              
+              if (tA.id === myTeamId) earnedXP += res.scoreA > res.scoreB ? 100 : res.scoreA === res.scoreB ? 30 : 10;
+              if (tB.id === myTeamId) earnedXP += res.scoreB > res.scoreA ? 100 : res.scoreA === res.scoreB ? 30 : 10;
               
               if (tA && tB) {
                   tA.played++; tA.goalsFor+=res.scoreA; tA.goalsAgainst+=res.scoreB; 
@@ -1072,23 +1061,19 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
                   if(res.scoreA > res.scoreB) { tA.points+=3; tA.won++; tB.lost++; } 
                   else if(res.scoreA===res.scoreB) { tA.points++; tA.drawn++; tB.points++; tB.drawn++; } 
                   else { tA.lost++; tB.points+=3; tB.won++; }
-                  // --- NOWOŚĆ: ZAUFANIE ZARZĄDU (PRESJA W TRAKCIE SEZONU) ---
+                  
                   if (tA.id === myTeamId || tB.id === myTeamId) {
                       const isWin = (tA.id === myTeamId && res.scoreA > res.scoreB) || (tB.id === myTeamId && res.scoreB > res.scoreA);
                       const isDraw = res.scoreA === res.scoreB;
                       
                       setBoardConfidence(prev => {
                           let change = isWin ? 5 : isDraw ? 0 : -6;
-                          // Jeśli to 1. Liga (giganci) - remis to wręcz porażka, a za przegraną lecą głowy!
                           if (myTeamData.league === 1) change = isWin ? 3 : isDraw ? -2 : -12; 
-                          // Jeśli to 3. Liga (słabeusze) - łatwiej o zadowolenie
                           if (myTeamData.league === 3) change = isWin ? 6 : isDraw ? 2 : -4;   
-                          
                           return Math.max(0, Math.min(100, prev + change));
                       });
                   }
 
-                  // Wyniki na pulpicie (z pełnymi statystykami)
                   if (tA.id === myTeamId || tB.id === myTeamId) {
                       setLastResults(prev => [{ 
                           host: tA.name, guest: tB.name, 
@@ -1099,14 +1084,12 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
                       }, ...prev].slice(0, 10));
                   }
 
-                  // B. Zapisywanie wyniku do terminarza
                   const leagueIndex = (tA.league || 1) - 1;
                   if (newSchedules[leagueIndex] && newSchedules[leagueIndex][week - 1]) {
                       const matchInSchedule = newSchedules[leagueIndex][week - 1].find(m => 
                           (String(m.home) === String(tA.id) && String(m.away) === String(tB.id)) ||
                           (String(m.home) === String(tB.id) && String(m.away) === String(tA.id))
                       );
-                      
                       if (matchInSchedule) {
                           if (String(matchInSchedule.home) === String(tA.id)) {
                               matchInSchedule.scoreHome = res.scoreA;
@@ -1120,7 +1103,6 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
                   }
               }
 
-             // C. Statystyki piłkarzy, KONTUZJE i BEZPOŚREDNI ROZWÓJ ZA MECZ
               res.events.forEach(ev => {
                   if (ev.type === 'goal') {
                       if (ev.scorer && ev.scorer.id) {
@@ -1128,8 +1110,6 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
                           if (p) {
                               p.goals = (p.goals || 0) + 1;
                               p.form = Math.min(10, (p.form || 5) + 1.2); 
-                              
-                              // ZNERFIONE: 12% szans za gola (było 35%)
                               if (p.age <= 26 && p.skill < p.potential && Math.random() < 0.12) {
                                   p.skill++;
                                   if (p.stats) p.stats.shooting = Math.min(99, p.stats.shooting + 1);
@@ -1142,8 +1122,6 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
                           if (a) {
                               a.assists = (a.assists || 0) + 1;
                               a.form = Math.min(10, (a.form || 5) + 0.8);
-                              
-                              // ZNERFIONE: 8% szans za asystę (było 25%)
                               if (a.age <= 26 && a.skill < a.potential && Math.random() < 0.08) {
                                   a.skill++;
                                   if (a.stats) a.stats.passing = Math.min(99, a.stats.passing + 1);
@@ -1157,12 +1135,10 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
                           injured.injury = ev.weeks;
                           injured.form = Math.max(1, (injured.form || 5) - 2); 
                       }
-                  // --- NOWE: KARTKI ---
                   } else if (ev.type === 'yellow' && ev.player) {
                       const p = newPlayers.find(x => x.id === ev.player.id);
                       if (p) {
                           p.yellowCards = (p.yellowCards || 0) + 1;
-                          // Reguła: 4. żółta = pauza, potem każda kolejna co 2. żółtą (6, 8, 10...) = pauza
                           if (p.yellowCards === 4 || (p.yellowCards > 4 && (p.yellowCards - 4) % 2 === 0)) {
                               p.suspension = (p.suspension || 0) + 1;
                           }
@@ -1171,12 +1147,11 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
                       const p = newPlayers.find(x => x.id === ev.player.id);
                       if (p) {
                           p.redCards = (p.redCards || 0) + 1;
-                          p.suspension = (p.suspension || 0) + 1; // Bezpośrednia czerwona = od razu pauza
+                          p.suspension = (p.suspension || 0) + 1; 
                       }
                   }
               });
 
-              // D. FORMA I ROZWÓJ OBRONY (Czyste konta i obrony)
               const teamAStarters = newPlayers.filter(p => String(p.teamId) === String(res.teamAId) && p.isStarter);
               const teamBStarters = newPlayers.filter(p => String(p.teamId) === String(res.teamBId) && p.isStarter);
 
@@ -1184,11 +1159,9 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
                   squad.forEach(p => {
                       if (p.position === 'BR' || p.position === 'OBR') {
                           let formChange = 0;
-                          
                           if (goalsConceded === 0) {
                               formChange += 1.2; 
-                              p.cleanSheets = (p.cleanSheets || 0) + 1; // NOWE: Zbieranie czystych kont!
-                              // ZNERFIONE: 10% szans za czyste konto (było 30%)
+                              p.cleanSheets = (p.cleanSheets || 0) + 1; 
                               if (p.age <= 26 && p.skill < p.potential && Math.random() < 0.10) {
                                   p.skill++; 
                                   if (p.stats) p.stats.defense = Math.min(99, p.stats.defense + 1);
@@ -1197,7 +1170,6 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
                           } else if (goalsConceded >= 3) {
                               formChange -= 1.0; 
                           }
-                          
                           formChange += (saves * 0.15); 
                           p.form = Math.min(10, Math.max(1, (p.form || 5) + formChange));
                       }
@@ -1208,99 +1180,62 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
               updateDefenseForm(teamBStarters, res.scoreA, res.savesB);
           });
       }
-// Automatyczne zrzucanie zablokowanych graczy na ławkę!
-              // --- NAPRAWA: Zrzucanie zablokowanych graczy na ławkę DLA WSZYSTKICH KLUBÓW (AI też!) ---
-              newPlayers.forEach(p => {
-                  // Obejmuje zarówno kartki jak i kontuzje!
-                  if ((p.suspension > 0 || p.injury > 0) && p.isStarter) {
-                      p.isStarter = false;
-                      // Komputer i gracz auto-zastępują braki kimś z ławki
-                      const teamBench = newPlayers.filter(x => x.teamId === p.teamId && !x.isStarter && (x.suspension || 0) === 0 && (x.injury || 0) === 0);
-                      let sub = teamBench.find(x => x.position === p.position);
-                      if (!sub && teamBench.length > 0) sub = teamBench[0];
-                      if (sub) sub.isStarter = true;
-                  }
-              });
-     // --- NOWE: LECZENIE KONTUZJI I SZYBKI COTYGODNIOWY ROZWÓJ (XP) ---
+
+      newPlayers.forEach(p => {
+          if ((p.suspension > 0 || p.injury > 0) && p.isStarter) {
+              p.isStarter = false;
+              const teamBench = newPlayers.filter(x => x.teamId === p.teamId && !x.isStarter && (x.suspension || 0) === 0 && (x.injury || 0) === 0);
+              let sub = teamBench.find(x => x.position === p.position);
+              if (!sub && teamBench.length > 0) sub = teamBench[0];
+              if (sub) sub.isStarter = true;
+          }
+      });
+
       newPlayers.forEach(p => {
           if (p.startSeasonSkill === undefined) p.startSeasonSkill = p.skill;
-          
           if (p.form > 5) p.form = Math.max(5, p.form - 0.2);
           else if (p.form < 5) p.form = Math.min(5, p.form + 0.2);
 
           if (p.injury > 0) p.injury -= 1;
           
           if (p.age <= 26 && p.injury === 0) {
-              
-              // DYNAMICZNY POTENCJAŁ (Znerfiono z 5% na 2% szans)
               if (p.form >= 8 && p.skill >= p.potential - 1) {
-                  if (Math.random() < 0.02) { 
-                      p.potential = Math.min(99, p.potential + 1);
-                  }
+                  if (Math.random() < 0.02) p.potential = Math.min(99, p.potential + 1);
               }
-
               if (p.skill < p.potential) {
-                  // ZNERFIONE: Rozwój bazowy (3% starter, 1% ławka) + 2% za wybitną formę
                   let growthChance = p.isStarter ? 0.03 : 0.01; 
                   if (p.form >= 8) growthChance += 0.02; 
-                  // --- SKILL RPG: CUDOTWÓRCA (Boost dla rezerwowych) ---
                   if (p.teamId === myTeamId && managerData?.skills?.miracle > 0) {
-                      if (!p.isStarter) growthChance += (managerData.skills.miracle * 0.02); // +2/4/6% szans na rozwój!
+                      if (!p.isStarter) growthChance += (managerData.skills.miracle * 0.02); 
                   }
-                  
                   if (Math.random() < growthChance) {
                       p.skill++;
                       if (p.skill > p.potential) p.skill = p.potential; 
-
                       const statsKeys = ['pace', 'shooting', 'passing', 'dribbling', 'defense', 'physical'];
                       const randStat = statsKeys[Math.floor(Math.random() * statsKeys.length)];
                       if(p.stats) p.stats[randStat] = Math.min(99, p.stats[randStat] + 1);
-                      
                       p.value = calculatePlayerValue(p.skill, p.potential, p.age);
                   }
               }
           }
       });
 
-      // ==========================================================================================
-      // 3. INTELIGENTNA SYMULACJA TŁA (Inne ligi / kraje) - POPRAWIONA
-      // ==========================================================================================
       newTeams.forEach(t => {
-          // Symulujemy tylko drużyny z innych krajów (bo Twoja liga jest symulowana mecz po meczu wyżej)
           if (t.country !== myTeamData.country) {
              const teamsInLeague = newTeams.filter(x => x.country === t.country && x.league === t.league).length;
              const maxMatches = (teamsInLeague - 1) * 2;
-             
              if (t.played < maxMatches && t.played < week) {
                  t.played++;
-
-                 // --- NOWA LOGIKA: SIŁA ZESPOŁU MA ZNACZENIE ---
-                 
-                 // 1. Obliczamy siłę drużyny (0-100)
                  const teamStrength = (t.attack + t.defense) / 2;
-                 
-                 // 2. Ustalamy średnią siłę rywala w danej lidze (Ghost Opponent)
-                 // Liga 1: ~76, Liga 2: ~69, Liga 3: ~63
                  let leagueAvgStrength = 76;
                  if (t.league === 2) leagueAvgStrength = 69;
                  if (t.league === 3) leagueAvgStrength = 63;
-
-                 // 3. Obliczamy przewagę nad średnią ligową
-                 // Np. Real Madryt (90) vs Średnia (76) = +14 (Duża przewaga)
-                 // Np. Słabeusz (65) vs Średnia (76) = -11 (Duża strata)
                  const advantage = teamStrength - leagueAvgStrength;
-
-                 // 4. Szansa na wygraną (Baza 35% + 1.5% za każdy punkt przewagi)
-                 // Real: 35% + (14 * 1.5%) = 35% + 21% = 56% szans na wygraną
-                 // Słabeusz: 35% + (-11 * 1.5%) = 35% - 16.5% = 18.5% szans na wygraną
                  let winChance = 0.35 + (advantage * 0.015);
-                 let drawChance = 0.28; // Remisy są dość stałe
-
-                 // Limity (żeby nikt nie miał 100% ani 0%)
+                 let drawChance = 0.28; 
                  if (winChance > 0.85) winChance = 0.85;
                  if (winChance < 0.10) winChance = 0.10;
 
-                 // 5. Losowanie wyniku i bramek
                  const r = Math.random();
                  let goalsScored = 0;
                  let goalsConceded = 0;
@@ -1309,13 +1244,11 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
                      t.points += 3; t.won++; 
                      goalsScored = Math.max(1, Math.floor(Math.random() * 3) + Math.floor(advantage / 10));
                      goalsConceded = Math.floor(Math.random() * 2); 
-                 } 
-                 else if (r < winChance + drawChance) { 
+                 } else if (r < winChance + drawChance) { 
                      t.points += 1; t.drawn++; 
                      goalsScored = Math.floor(Math.random() * 2); 
                      goalsConceded = goalsScored; 
-                 } 
-                 else { 
+                 } else { 
                      t.lost++; 
                      goalsScored = Math.floor(Math.random() * 2);
                      goalsConceded = Math.max(1, Math.floor(Math.random() * 3) - Math.floor(advantage / 10));
@@ -1324,38 +1257,33 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
                  t.goalsFor += goalsScored;
                  t.goalsAgainst += goalsConceded;
 
-                 // --- NAPRAWA ZŁOTEJ PIŁKI: Przydzielanie Goli i Czystych Kont w tle! ---
                  const teamPlayers = newPlayers.filter(p => p.teamId === t.id);
                  if (teamPlayers.length > 0) {
-                     // Napastnicy strzelają
                      const attackers = teamPlayers.filter(p => p.position === 'NAP' || p.position === 'POM');
                      for (let i = 0; i < goalsScored; i++) {
                          const scorer = attackers.length > 0 ? attackers[Math.floor(Math.random() * attackers.length)] : teamPlayers[0];
                          scorer.goals = (scorer.goals || 0) + 1;
-                         scorer.form = Math.min(10, (scorer.form || 5) + 0.5); // Form rośnie za gola
-                         
-                         // Asysty
+                         scorer.form = Math.min(10, (scorer.form || 5) + 0.5); 
                          if (Math.random() > 0.5) {
                              const assister = teamPlayers[Math.floor(Math.random() * teamPlayers.length)];
                              if (assister.id !== scorer.id) assister.assists = (assister.assists || 0) + 1;
                          }
                      }
-                     // Bramkarze bronią
                      if (goalsConceded === 0) {
                          const gk = teamPlayers.find(p => p.position === 'BR');
                          if (gk) gk.cleanSheets = (gk.cleanSheets || 0) + 1;
                      }
                  }
-          }
-      }});
-      // ==========================================================================================
+             }
+         }
+      });
 
-
-      // Zdarzenia losowe
-      // --- NOWOŚĆ: SYSTEM FABUŁY I ZDARZEŃ LOSOWYCH ---
-      if (Math.random() < 0.20 && myTeamPlayers.length > 0) { // 20% szans w każdej kolejce na dylemat
-          const randomPlayer = myTeamPlayers[Math.floor(Math.random() * myTeamPlayers.length)];
-          const topPlayer = [...myTeamPlayers].sort((a,b) => b.skill - a.skill)[0] || randomPlayer;
+     // --- SYSTEM FABUŁY I ZDARZEŃ LOSOWYCH ---
+      const myTeamPlayersForEvent = newPlayers.filter(p => String(p.teamId) === String(myTeamId));
+      // UWAGA: Ustawione na 1.0 (100%), żeby po każdym meczu wyskakiwał dylemat (dla testów). Zmień potem na 0.25!
+      if (Math.random() < 1.0 && myTeamPlayersForEvent.length > 0) {
+          const randomPlayer = myTeamPlayersForEvent[Math.floor(Math.random() * myTeamPlayersForEvent.length)];
+          const topPlayer = [...myTeamPlayersForEvent].sort((a,b) => b.skill - a.skill)[0] || randomPlayer;
 
           const possibleEvents = [
               {
@@ -1380,29 +1308,27 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
                   title: "Bunt Kibiców",
                   desc: "Ultrasi protestują przeciwko zbyt wysokim cenom biletów na stadionie i słabemu jedzeniu. Grożą bojkotem i wniesieniem pustych trybun na najbliższy mecz!",
                   choices: [
-                      { text: "Zrób promocję (Obniżka)", budgetChange: -120000, boardChange: 15, globalMoraleChange: 5, logText: "Kibice są zachwyceni, atmosfera w klubie rośnie." },
+                      { text: "Zrób promocję", budgetChange: -120000, boardChange: 15, globalMoraleChange: 5, logText: "Kibice są zachwyceni, atmosfera w klubie rośnie." },
                       { text: "Zignoruj protest", budgetChange: 0, boardChange: -15, globalMoraleChange: -5, logText: "Kibice odwracają się od klubu. Napięta atmosfera." }
-                  ]
-              },
-              {
-                  title: "Podejrzany Inwestor",
-                  desc: "Ekscentryczny inwestor z Bliskiego Wschodu oferuje potężny zastrzyk gotówki dla klubu, ale pod jednym warunkiem: drużyna wylatuje na męczący mecz pokazowy do Dubaju w środku sezonu.",
-                  choices: [
-                      { text: "Bierzemy gotówkę!", budgetChange: 800000, globalMoraleChange: -20, logText: "Konto pełne milionów, ale drużyna ledwo oddycha z przemęczenia." },
-                      { text: "Odrzuć ofertę", budgetChange: 0, boardChange: 5, globalMoraleChange: 10, logText: "Skupiamy się na lidze. Piłkarze doceniają czas na odpoczynek." }
                   ]
               }
           ];
 
           const chosenEvent = possibleEvents[Math.floor(Math.random() * possibleEvents.length)];
           setActiveEvent(chosenEvent);
+      } else {
+          if(Math.random() > 0.8) {
+              const evs = [{t:"Dzień sponsora",v:50000}, {t:"Zysk z biletów",v:20000}, {t:"Bonus od ligi",v:15000}];
+              const ev = evs[Math.floor(Math.random()*evs.length)];
+              setBudget(prev => prev + ev.v); setNotifications(prev => [{text: ev.t, value: ev.v}, ...prev]);
+          }
       }
 
       setTeams(newTeams); 
       setPlayers(newPlayers);
       setSchedules(newSchedules); 
       setWeek(p => p+1); 
-      // Levelowanie Menedżera
+      
       if (earnedXP > 0) {
           setManagerData(prev => {
               let temp = { ...prev };
@@ -1418,18 +1344,40 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
               return temp;
           });
       }
-      // MID-SEASON SACK (Wyrzucenie w trakcie sezonu)
+      
       if (boardConfidence <= 0) {
           alert("🚨 ZWOLNIENIE W TRAKCIE SEZONU!\nZarząd stracił resztki cierpliwości. Seria katastrofalnych wyników sprawiła, że zostałeś wyrzucony ze skutkiem natychmiastowym!");
           setMyTeamId(null);
           setAppMode('JOB_CENTER');
       }
-      // --- SKILL RPG: REKIN FINANSJERY (Pasywny dochód co tydzień) ---
+      
       const financierLevel = managerData?.skills?.financier || 0;
       if (financierLevel > 0) {
-          const passiveIncome = financierLevel * 30000; // 30k, 60k, 90k DARMOWEJ GOTÓWKI co tydzień!
+          const passiveIncome = financierLevel * 30000; 
           setBudget(b => b + passiveIncome);
       }
+
+      if (infrastructure) {
+          if (infrastructure.stadium > 1) {
+              const stadiumIncome = (infrastructure.stadium - 1) * 40000; 
+              setBudget(b => b + stadiumIncome);
+          }
+          newPlayers.forEach(p => {
+              if (p.teamId === myTeamId) {
+                  if (infrastructure.training > 1 && Math.random() < (infrastructure.training * 0.015)) {
+                      if (p.skill < p.potential) {
+                          p.skill++;
+                          p.value = calculatePlayerValue(p.skill, p.potential, p.age);
+                      }
+                  }
+                  if (infrastructure.medical > 1 && p.injury > 0) {
+                      if (Math.random() < (infrastructure.medical * 0.1)) p.injury -= 1; 
+                  }
+                  if (infrastructure.medical > 2 && p.form < 6 && Math.random() < 0.2) p.form += 0.5; 
+              }
+          });
+      }
+      
       setPendingUpdates(null);
       // --- EFEKTY INFRASTRUKTURY KLUBU ---
       if (infrastructure) {
@@ -2134,7 +2082,8 @@ setInfrastructure({ stadium: 1, training: 1, medical: 1 });
       
       {selectedPlayerForDetails && <PlayerDetailModal player={selectedPlayerForDetails} onClose={() => setSelectedPlayerForDetails(null)} onSwap={() => handleSwapRequest(selectedPlayerForDetails.id)} swapSourceId={swapSourceId} onSell={() => sellOwnPlayer(selectedPlayerForDetails)} onBuyOption={() => triggerBuyOption(selectedPlayerForDetails)} managerData={managerData} />}
       {/* NOWOŚĆ: EKRAN WYDARZENIA FABULARNEGO */}
-      {activeEvent && <StoryEventModal event={activeEvent} onResolve={handleResolveEvent} />}
+      {/* NOWOŚĆ: EKRAN WYDARZENIA FABULARNEGO */}
+      {activeEvent && <StoryEventModal event={activeEvent} onResolve={handleResolveEvent} budget={budget} />}
         {/* NOWOŚĆ: EKRAN WYBORU SPONSORA */}
       {showSponsorModal && myTeam && (
           <SponsorSelectionModal 
@@ -4496,7 +4445,8 @@ const InfrastructureView = ({ infrastructure, setInfrastructure, budget, setBudg
     );
 };
 // --- NOWOŚĆ: WYDARZENIA FABULARNE (WYBORY) ---
-const StoryEventModal = ({ event, onResolve }) => {
+// --- NOWOŚĆ: WYDARZENIA FABULARNE (WYBORY) ---
+const StoryEventModal = ({ event, onResolve, budget }) => {
     return (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-sm p-6">
             <div className="bg-slate-900 border border-slate-600 w-full max-w-3xl rounded-[2rem] shadow-[0_0_50px_rgba(255,255,255,0.1)] p-8 md:p-12 animate-scale-in relative overflow-hidden">
@@ -4513,48 +4463,67 @@ const StoryEventModal = ({ event, onResolve }) => {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
-                    {event.choices.map((choice, idx) => (
-                        <button 
-                            key={idx} 
-                            onClick={() => onResolve(choice)} 
-                            className="group bg-slate-800 hover:bg-slate-700 border-2 border-slate-600 hover:border-white p-6 rounded-2xl flex flex-col items-center text-center transition-all duration-300 hover:shadow-[0_15px_30px_rgba(255,255,255,0.1)] hover:-translate-y-1"
-                        >
-                            <span className="text-xl font-black text-white mb-4 group-hover:text-red-400 transition-colors leading-tight">{choice.text}</span>
-                            
-                            <div className="flex flex-wrap justify-center gap-2 mt-auto">
-                                {choice.budgetChange !== 0 && (
-                                    <span className={`text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border ${choice.budgetChange > 0 ? 'bg-emerald-900/50 text-emerald-400 border-emerald-500/30' : 'bg-red-900/50 text-red-400 border-red-500/30'}`}>
-                                        Kasa {choice.budgetChange > 0 ? '+' : ''}{formatMoney(choice.budgetChange)}
-                                    </span>
+                    {event.choices.map((choice, idx) => {
+                        // Sprawdzamy czy gracza na to stać
+                        const isTooExpensive = choice.budgetChange < 0 && budget < Math.abs(choice.budgetChange);
+
+                        return (
+                            <button 
+                                key={idx} 
+                                onClick={() => onResolve(choice)} 
+                                disabled={isTooExpensive}
+                                className={`group border-2 p-6 rounded-2xl flex flex-col items-center text-center transition-all duration-300 
+                                    ${isTooExpensive 
+                                        ? 'bg-slate-950 border-red-900/30 opacity-50 cursor-not-allowed' 
+                                        : 'bg-slate-800 hover:bg-slate-700 border-slate-600 hover:border-white hover:shadow-[0_15px_30px_rgba(255,255,255,0.1)] hover:-translate-y-1'
+                                    }`}
+                            >
+                                <span className={`text-xl font-black mb-4 leading-tight ${isTooExpensive ? 'text-slate-500' : 'text-white group-hover:text-red-400 transition-colors'}`}>
+                                    {choice.text}
+                                </span>
+                                
+                                <div className="flex flex-wrap justify-center gap-2 mt-auto">
+                                    {choice.budgetChange !== 0 && (
+                                        <span className={`text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border ${choice.budgetChange > 0 ? 'bg-emerald-900/50 text-emerald-400 border-emerald-500/30' : 'bg-red-900/50 text-red-400 border-red-500/30'}`}>
+                                            Kasa {choice.budgetChange > 0 ? '+' : ''}{formatMoney(choice.budgetChange)}
+                                        </span>
+                                    )}
+                                    {choice.moraleChange !== undefined && (
+                                        <span className={`text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border ${choice.moraleChange > 0 ? 'bg-emerald-900/50 text-emerald-400 border-emerald-500/30' : 'bg-orange-900/50 text-orange-400 border-orange-500/30'}`}>
+                                            Morale {choice.moraleChange > 0 ? '+' : ''}{choice.moraleChange}
+                                        </span>
+                                    )}
+                                    {choice.globalMoraleChange !== undefined && (
+                                        <span className={`text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border ${choice.globalMoraleChange > 0 ? 'bg-emerald-900/50 text-emerald-400 border-emerald-500/30' : 'bg-orange-900/50 text-orange-400 border-orange-500/30'}`}>
+                                            Zespół {choice.globalMoraleChange > 0 ? '+' : ''}{choice.globalMoraleChange}
+                                        </span>
+                                    )}
+                                    {choice.boardChange !== undefined && (
+                                        <span className={`text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border ${choice.boardChange > 0 ? 'bg-emerald-900/50 text-emerald-400 border-emerald-500/30' : 'bg-red-900/50 text-red-400 border-red-500/30'}`}>
+                                            Zarząd {choice.boardChange > 0 ? '+' : ''}{choice.boardChange}%
+                                        </span>
+                                    )}
+                                    {choice.injuryChange !== undefined && choice.injuryChange > 0 && (
+                                        <span className="text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border bg-red-900/50 text-red-400 border-red-500/30 animate-pulse">
+                                            Kontuzja {choice.injuryChange} tyg.
+                                        </span>
+                                    )}
+                                    {choice.injuryChange === 0 && (
+                                        <span className="text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border bg-blue-900/50 text-blue-400 border-blue-500/30">
+                                            Skuteczne Leczenie
+                                        </span>
+                                    )}
+                                </div>
+
+                                {/* Ostrzeżenie gdy brak kasy */}
+                                {isTooExpensive && (
+                                    <div className="w-full mt-4 bg-red-950/50 border border-red-900/50 py-1.5 rounded-lg text-[9px] text-red-500 font-black uppercase tracking-widest">
+                                        Brak środków
+                                    </div>
                                 )}
-                                {choice.moraleChange !== undefined && (
-                                    <span className={`text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border ${choice.moraleChange > 0 ? 'bg-emerald-900/50 text-emerald-400 border-emerald-500/30' : 'bg-orange-900/50 text-orange-400 border-orange-500/30'}`}>
-                                        Morale {choice.moraleChange > 0 ? '+' : ''}{choice.moraleChange}
-                                    </span>
-                                )}
-                                {choice.globalMoraleChange !== undefined && (
-                                    <span className={`text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border ${choice.globalMoraleChange > 0 ? 'bg-emerald-900/50 text-emerald-400 border-emerald-500/30' : 'bg-orange-900/50 text-orange-400 border-orange-500/30'}`}>
-                                        Zespół {choice.globalMoraleChange > 0 ? '+' : ''}{choice.globalMoraleChange}
-                                    </span>
-                                )}
-                                {choice.boardChange !== undefined && (
-                                    <span className={`text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border ${choice.boardChange > 0 ? 'bg-emerald-900/50 text-emerald-400 border-emerald-500/30' : 'bg-red-900/50 text-red-400 border-red-500/30'}`}>
-                                        Zarząd {choice.boardChange > 0 ? '+' : ''}{choice.boardChange}%
-                                    </span>
-                                )}
-                                {choice.injuryChange !== undefined && choice.injuryChange > 0 && (
-                                    <span className="text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border bg-red-900/50 text-red-400 border-red-500/30 animate-pulse">
-                                        Kontuzja {choice.injuryChange} tyg.
-                                    </span>
-                                )}
-                                {choice.injuryChange === 0 && (
-                                    <span className="text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg font-black border bg-blue-900/50 text-blue-400 border-blue-500/30">
-                                        Skuteczne Leczenie
-                                    </span>
-                                )}
-                            </div>
-                        </button>
-                    ))}
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
         </div>
