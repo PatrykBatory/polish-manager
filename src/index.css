@@ -1,8 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Rajdhani:wght@500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 body {
-  font-family: 'Inter', sans-serif;
-  @apply bg-slate-50 text-slate-800;
+  font-family: 'Rajdhani', sans-serif;
+  @apply bg-slate-950 text-slate-100;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, .font-display {
+  font-family: 'Oswald', sans-serif;
+}
+
+/* Nowe innowacyjne efekty graficzne */
+.glass-panel {
+  @apply bg-slate-900/60 backdrop-blur-xl border border-white/10 shadow-2xl;
+}
+
+/* Efekt błyszczącej karty (tzw. Holo Foil) */
+.card-holo-effect {
+  position: relative;
+  overflow: hidden;
+}
+.card-holo-effect::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -150%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%);
+  transform: skewX(-25deg);
+  animation: holo-sweep 4s infinite ease-in-out;
+}
+
+@keyframes holo-sweep {
+  0% { left: -150%; }
+  50% { left: 200%; }
+  100% { left: 200%; }
+}
+
+/* Nowoczesne panele dla każdego ekranu gry */
+.panel-card {
+  @apply bg-[#1e293b] border border-slate-700 rounded-2xl shadow-xl p-6 transition-all duration-300;
+}
+
+.panel-header {
+  @apply text-xl font-black text-white uppercase tracking-widest mb-6 border-b border-slate-700 pb-3 flex items-center gap-3;
+}
+
+.panel-stat {
+  @apply bg-[#0f172a] rounded-xl p-4 border border-slate-700 flex flex-col items-center justify-center;
 }
